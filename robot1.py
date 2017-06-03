@@ -1,5 +1,6 @@
 # coding: utf-8
 import os
+import random
 import sys
 import re
 import json
@@ -7,6 +8,8 @@ import time
 import urllib.request, urllib.parse, urllib.error
 import logging
 import qrcode
+import subprocess
+import xml.dom.minidom
 
 class Robot(object):
 
@@ -24,8 +27,13 @@ class Robot(object):
         self.skey = ''
         self.uin = ''
         self.sid = ''
+        self.deviceId = 'e' + repr(random.random())[2:17]
         self.base_uri = ''
         self.redirect_uri = ''
+        self.commandLineQRCode = False
+        self.saveFolder = os.path.join(os.getcwd(), 'saved')
+        self.saveSubFolders = {'webwxgeticon': 'icons', 'webwxgetheadimg': 'headimgs', 'webwxgetmsgimg': 'msgimgs',
+                           'webwxgetvideo': 'videos', 'webwxgetvoice': 'voices', '_showQRCodeImg': 'qrcodes'}
 
     def _echo(self, str):
         sys.stdout.write(str)
@@ -86,6 +94,19 @@ class Robot(object):
 
         return ''
 
+    def _saveFile(self, filename, data, api=None):
+        fn = filename
+        if self.saveSubFolders[api]:
+            dirName = os.path.join(self.saveFolder, self.saveSubFolders[api])
+            if not os.path.exists(dirName):
+                os.makedirs(dirName)
+            fn = os.path.join(dirName, filename)
+            logging.debug('Saved file: %s' % fn)
+            with open(fn, 'wb') as f:
+                f.write(data)
+                f.close()
+        return fn
+
     def getUUID(self):
         url = 'https://login.weixin.qq.com/jslogin'
         params = {
@@ -118,14 +139,56 @@ class Robot(object):
 
     def genQRCode(self):
         #return self._showQRCodeImg()
-        '''
         if sys.platform.startswith('win'):
             self._showQRCodeImg('win')
         elif sys.platform.find('darwin') >= 0:
             self._showQRCodeImg('macos')
         else:
-        '''
-        self._str2qr('https://login.weixin.qq.com/l/' + self.uuid)
+            self._str2qr('https://login.weixin.qq.com/l/' + self.uuid)
+
+    def _showQRCodeImg(self, str):
+        if self.commandLineQRCode:
+            qrCode = QRCode('https://login.weixin.qq.com/l/' + self.uuid)
+            self._showCommandLineQRCode(qrCode.text(1))
+        else:
+            url = 'https://login.weixin.qq.com/qrcode/' + self.uuid
+            params = {
+                't': 'webwx',
+                '_': int(time.time())
+            }
+
+            data = self._post(url, params, False)
+            if data == '':
+                return
+            QRCODE_PATH = self._saveFile('qrcode.jpg', data, '_showQRCodeImg')
+            if str == 'win':
+                os.startfile(QRCODE_PATH)
+            elif str == 'macos':
+                subprocess.call(["open", QRCODE_PATH])
+            else:
+                return
+
+    def _showCommandLineQRCode(self, qr_data, enableCmdQR=2):
+        try:
+            b = u'\u2588'
+            sys.stdout.write(b + '\r')
+            sys.stdout.flush()
+        except UnicodeEncodeError:
+            white = 'MM'
+        else:
+            white = b
+        black = '  '
+        blockCount = int(enableCmdQR)
+        if abs(blockCount) == 0:
+            blockCount = 1
+        white *= abs(blockCount)
+        if blockCount < 0:
+            white, black = black, white
+        sys.stdout.write(' ' * 50 + '\r')
+        sys.stdout.flush()
+        qr = qr_data.replace('0', white).replace('1', black)
+        sys.stdout.write(qr)
+        sys.stdout.flush()
 
     def _str2qr(self, str):
         print(str)
