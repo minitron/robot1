@@ -10,8 +10,24 @@ import logging
 import qrcode
 import subprocess
 import xml.dom.minidom
+import http.cookiejar
+
 
 class Robot(object):
+
+    def __str__(self):
+        description = \
+            "=========================\n" + \
+            "[#] Web Weixin\n" + \
+            "[#] Debug Mode: " + str(self.DEBUG) + "\n" + \
+            "[#] Uuid: " + self.uuid + "\n" + \
+            "[#] Uin: " + str(self.uin) + "\n" + \
+            "[#] Sid: " + self.sid + "\n" + \
+            "[#] Skey: " + self.skey + "\n" + \
+            "[#] DeviceId: " + self.deviceId + "\n" + \
+            "[#] PassTicket: " + self.pass_ticket + "\n" + \
+            "========================="
+        return description
 
     def __init__(self):
         # read file ini.txt
@@ -22,18 +38,48 @@ class Robot(object):
                 self.config = line
         # read file line and set config
         self.config = line
-        self.appid = 'wx782c26e4c19acffb'
-        self.lang = 'zh_CN'
-        self.skey = ''
-        self.uin = ''
-        self.sid = ''
-        self.deviceId = 'e' + repr(random.random())[2:17]
+
+        self.DEBUG = False
+        self.commandLineQRCode = False
+        self.uuid = ''
         self.base_uri = ''
         self.redirect_uri = ''
-        self.commandLineQRCode = False
+        self.uin = ''
+        self.sid = ''
+        self.skey = ''
+        self.pass_ticket = ''
+        self.deviceId = 'e' + repr(random.random())[2:17]
+        self.BaseRequest = {}
+        self.synckey = ''
+        self.SyncKey = []
+        self.User = []
+        self.MemberList = []
+        self.ContactList = []  # 好友
+        self.GroupList = []  # 群
+        self.GroupMemeberList = []  # 群友
+        self.PublicUsersList = []  # 公众号／服务号
+        self.SpecialUsersList = []  # 特殊账号
+        self.autoReplyMode = False
+        self.syncHost = ''
+        self.user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.109 Safari/537.36'
+        self.interactive = False
+        self.autoOpen = False
         self.saveFolder = os.path.join(os.getcwd(), 'saved')
         self.saveSubFolders = {'webwxgeticon': 'icons', 'webwxgetheadimg': 'headimgs', 'webwxgetmsgimg': 'msgimgs',
-                           'webwxgetvideo': 'videos', 'webwxgetvoice': 'voices', '_showQRCodeImg': 'qrcodes'}
+                               'webwxgetvideo': 'videos', 'webwxgetvoice': 'voices', '_showQRCodeImg': 'qrcodes'}
+        self.appid = 'wx782c26e4c19acffb'
+        self.lang = 'zh_CN'
+        self.lastCheckTs = time.time()
+        self.memberCount = 0
+        self.SpecialUsers = ['newsapp', 'fmessage', 'filehelper', 'weibo', 'qqmail', 'fmessage', 'tmessage', 'qmessage', 'qqsync', 'floatbottle', 'lbsapp', 'shakeapp', 'medianote', 'qqfriend', 'readerapp', 'blogapp', 'facebookapp', 'masssendapp', 'meishiapp', 'feedsapp',
+                             'voip', 'blogappweixin', 'weixin', 'brandsessionholder', 'weixinreminder', 'wxid_novlwrv3lqwv11', 'gh_22b87fa7cb3c', 'officialaccounts', 'notification_messages', 'wxid_novlwrv3lqwv11', 'gh_22b87fa7cb3c', 'wxitil', 'userexperience_alarm', 'notification_messages']
+        self.TimeOut = 20  # 同步最短时间间隔（单位：秒）
+        self.media_count = -1
+
+        self.cookie = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.cookie))
+        opener.addheaders = [('User-agent', self.user_agent)]
+        urllib.request.install_opener(opener)
 
     def _echo(self, str):
         sys.stdout.write(str)
@@ -255,7 +301,70 @@ class Robot(object):
         }
         return True
 
+    def webwxinit(self):
+        url = self.base_uri + '/webwxinit?pass_ticket=%s&skey=%s&r=%s' % (
+            self.pass_ticket, self.skey, int(time.time()))
+        params = {
+            'BaseRequest': self.BaseRequest
+        }
+        dic = self._post(url, params)
+        if dic == '':
+            return False
+        self.SyncKey = dic['SyncKey']
+        self.User = dic['User']
+        # synckey for synccheck
+        self.synckey = '|'.join(
+            [str(keyVal['Key']) + '_' + str(keyVal['Val']) for keyVal in self.SyncKey['List']])
 
+        return dic['BaseResponse']['Ret'] == 0
+
+    def webwxstatusnotify(self):
+        url = self.base_uri + \
+              '/webwxstatusnotify?lang=zh_CN&pass_ticket=%s' % (self.pass_ticket)
+        params = {
+            'BaseRequest': self.BaseRequest,
+            "Code": 3,
+            "FromUserName": self.User['UserName'],
+            "ToUserName": self.User['UserName'],
+            "ClientMsgId": int(time.time())
+        }
+        dic = self._post(url, params)
+        if dic == '':
+            return False
+
+        return dic['BaseResponse']['Ret'] == 0
+
+    def webwxgetcontact(self):
+        SpecialUsers = self.SpecialUsers
+        url = self.base_uri + '/webwxgetcontact?pass_ticket=%s&skey=%s&r=%s' % (
+            self.pass_ticket, self.skey, int(time.time()))
+        dic = self._post(url, {})
+        if dic == '':
+            return False
+
+        self.MemberCount = dic['MemberCount']
+        self.MemberList = dic['MemberList']
+        ContactList = self.MemberList[:]
+        GroupList = self.GroupList[:]
+        PublicUsersList = self.PublicUsersList[:]
+        SpecialUsersList = self.SpecialUsersList[:]
+
+        for i in range(len(ContactList) - 1, -1, -1):
+            Contact = ContactList[i]
+            if Contact['VerifyFlag'] & 8 != 0:  # 公众号/服务号
+                ContactList.remove(Contact)
+                self.PublicUsersList.append(Contact)
+            elif Contact['UserName'] in SpecialUsers:  # 特殊账号
+                ContactList.remove(Contact)
+                self.SpecialUsersList.append(Contact)
+            elif '@@' in Contact['UserName']:  # 群聊
+                ContactList.remove(Contact)
+                self.GroupList.append(Contact)
+            elif Contact['UserName'] == self.User['UserName']:  # 自己
+                ContactList.remove(Contact)
+        self.ContactList = ContactList
+
+        return True
 
     def start(self):
         # connect wx server
@@ -273,6 +382,12 @@ class Robot(object):
             break
 
         self._run('[*] 正在登录 ... ', self.login)
+        self._run('[*] 微信初始化 ... ', self.webwxinit)
+        self._run('[*] 开启状态通知 ... ', self.webwxstatusnotify)
+        self._run('[*] 获取联系人 ... ', self.webwxgetcontact)
+        self._echo('[*] 应有 %s 个联系人，读取到联系人 %d 个 \n' %
+                   (self.MemberCount, len(self.MemberList)))
+        self._echo('[*] 共有 %d 个直接联系人 ' % ( len(self.ContactList) ) )
 
 if __name__ == '__main__':
     Robot1 = Robot()
