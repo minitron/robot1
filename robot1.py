@@ -366,6 +366,13 @@ class Robot(object):
 
         return True
 
+    def sendAllMsg(self):
+        i = 1
+        for member in self.ContactList:
+            if (member['NickName'] == '小天的机器人' or member['NickName'] == '燕尾虾'):
+                print('%d , %s 联系人, %s 昵称 \n' % (i, member['NickName'], member['UserName']))
+            i = i + 1
+
     def start(self):
         # connect wx server
         self._echo('[*] 微信网页版 ... 开动\n')
@@ -385,9 +392,8 @@ class Robot(object):
         self._run('[*] 微信初始化 ... ', self.webwxinit)
         self._run('[*] 开启状态通知 ... ', self.webwxstatusnotify)
         self._run('[*] 获取联系人 ... ', self.webwxgetcontact)
-        self._echo('[*] 应有 %s 个联系人，读取到联系人 %d 个 \n' %
-                   (self.MemberCount, len(self.MemberList)))
-        self._echo('[*] 共有 %d 个直接联系人 ' % ( len(self.ContactList) ) )
+        self._echo('[*] 共有 %d 个直接联系人 \n ' % ( len(self.ContactList) ))
+        self.sendAllMsg()
 
 if __name__ == '__main__':
     Robot1 = Robot()
