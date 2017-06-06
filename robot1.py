@@ -12,7 +12,6 @@ import subprocess
 import xml.dom.minidom
 import http.cookiejar
 
-
 class Robot(object):
 
     def __str__(self):
