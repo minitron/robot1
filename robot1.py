@@ -11,6 +11,8 @@ import qrcode
 import subprocess
 import xml.dom.minidom
 import http.cookiejar
+import requests
+
 
 class Robot(object):
 
@@ -83,6 +85,16 @@ class Robot(object):
     def _echo(self, str):
         sys.stdout.write(str)
         sys.stdout.flush()
+
+    def _transcoding(self, data):
+        if not data:
+            return data
+        result = None
+        if type(data) == str:
+            result = data
+        elif type(data) == str:
+            result = data.decode('utf-8')
+        return result
 
     def _get(self, url: object, api: object = None, timeout: object = None) -> object:
         request = urllib.request.Request(url=url)
@@ -365,11 +377,48 @@ class Robot(object):
 
         return True
 
+    def webwxsendmsg(self, word, to='filehelper'):
+        url = self.base_uri + \
+            '/webwxsendmsg?pass_ticket=%s' % (self.pass_ticket)
+        clientMsgId = str(int(time.time() * 1000)) + \
+            str(random.random())[:5].replace('.', '')
+        params = {
+            'BaseRequest': self.BaseRequest,
+            'Msg': {
+                "Type": 1,
+                "Content": self._transcoding(word),
+                "FromUserName": self.User['UserName'],
+                "ToUserName": to,
+                "LocalID": clientMsgId,
+                "ClientMsgId": clientMsgId
+            }
+        }
+        headers = {'content-type': 'application/json; charset=UTF-8'}
+        data = json.dumps(params, ensure_ascii=False).encode('utf8')
+        r = requests.post(url, data=data, headers=headers)
+        dic = r.json()
+        return dic['BaseResponse']['Ret'] == 0
+
     def sendAllMsg(self):
         i = 1
         for member in self.ContactList:
             if (member['NickName'] == '小天的机器人' or member['NickName'] == '燕尾虾'):
                 print('%d , %s 联系人, %s 昵称 \n' % (i, member['NickName'], member['UserName']))
+            i = i + 1
+
+    def sendMsgToAll(self, word):
+        i = 1
+        for contact in self.ContactList:
+            name = contact['RemarkName'] if contact[
+                'RemarkName'] else contact['NickName']
+            id = contact['UserName']
+            if (name == '小天的机器人'):
+                self._echo('%d -> : 发送消息' % (i))
+                if self.webwxsendmsg(word, id):
+                    print(' [成功]')
+                else:
+                    print(' [失败]')
+                time.sleep(1)
             i = i + 1
 
     def start(self):
@@ -392,7 +441,7 @@ class Robot(object):
         self._run('[*] 开启状态通知 ... ', self.webwxstatusnotify)
         self._run('[*] 获取联系人 ... ', self.webwxgetcontact)
         self._echo('[*] 共有 %d 个直接联系人 \n ' % ( len(self.ContactList) ))
-        self.sendAllMsg()
+        self.sendMsgToAll('好久不见，这是一个来自周航的问候。\n')
 
 if __name__ == '__main__':
     Robot1 = Robot()
